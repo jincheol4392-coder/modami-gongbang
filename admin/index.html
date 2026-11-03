@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>문의함 | 모담이 공방</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='11' y='2' width='10' height='7' fill='%23E9D9BE'/%3E%3Cpath d='M5 13h11v17H8l-3-3z' fill='%238C4A36'/%3E%3Cpath d='M16 13h11v14l-3 3h-8z' fill='%23C8902F'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hahmlet:wght@500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    [hidden] { display: none !important; }
+    :root {
+      --concrete: #E6E4E0; --paper: #F3F1ED; --ink: #2A2320; --ink-soft: #5B504A;
+      --clay: #8C4A36; --ochre: #C8902F; --oak: #E9D9BE; --line: #CFCBC4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--concrete); color: var(--ink);
+      font-family: "IBM Plex Sans KR", "Malgun Gothic", sans-serif;
+      font-size: 16px; line-height: 1.6; word-break: keep-all;
+    }
+    main { max-width: 640px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { font-family: "Hahmlet", serif; font-weight: 500; font-size: 1.5rem; margin: 0 0 24px; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+    .login { display: grid; gap: 12px; }
+    .login label { font-weight: 500; }
+    .login input {
+      padding: 14px; border: 1.5px solid var(--line); background: var(--paper); border-radius: 0;
+    }
+    .primary {
+      padding: 14px 20px; border: 0; background: var(--ink); color: var(--paper); font-weight: 600;
+    }
+    .error { color: var(--clay); margin: 0; }
+
+    .summary {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+      padding: 20px; background: var(--paper); margin-bottom: 20px;
+    }
+    .summary strong { font-family: "Hahmlet", serif; font-size: 2.5rem; font-weight: 500; line-height: 1; }
+    .summary .ghost { padding: 10px 14px; background: none; border: 1.5px solid var(--line); }
+
+    .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+    .card { background: var(--paper); padding: 18px; border-left: 4px solid var(--line); }
+    .card[data-status="새 문의"] { border-left-color: var(--ochre); }
+    .card[data-status="연락함"] { border-left-color: var(--clay); }
+    .card__head { display: flex; justify-content: space-between; gap: 8px; color: var(--ink-soft); font-size: 0.9375rem; }
+    .card__name { font-weight: 600; font-size: 1.125rem; margin: 6px 0 2px; }
+    .contact {
+      display: inline-block; padding: 6px 0; background: none; border: 0; color: var(--ink);
+      text-decoration: underline; text-underline-offset: 3px;
+    }
+    .card__date { margin: 4px 0 14px; }
+    .statuses { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .statuses button {
+      min-height: 44px; border: 1.5px solid var(--line); background: none; color: var(--ink-soft);
+    }
+    .statuses button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); font-weight: 600; }
+    .empty { padding: 24px; background: var(--paper); color: var(--ink-soft); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>모담이 공방 문의함</h1>
+
+    <form class="login" id="login">
+      <label for="pw">관리자 비밀번호</label>
+      <input id="pw" type="password" autocomplete="current-password" required>
+      <button class="primary" type="submit">문의 보기</button>
+      <p class="error" id="login-error" role="alert" hidden></p>
+    </form>
+
+    <section id="inbox" hidden>
+      <div class="summary">
+        <p>새 문의 <strong id="new-count">0</strong>건</p>
+        <button class="ghost" type="button" id="refresh">새로고침</button>
+      </div>
+      <p class="error" id="inbox-error" role="alert" hidden></p>
+      <ul class="list" id="list"></ul>
+    </section>
+  </main>
+
+  <script>
+    const STATUSES = ['새 문의', '연락함', '완료'];
+    const KEY = 'modami-admin';
+    const $ = (id) => document.getElementById(id);
+
+    const getPw = () => { try { return sessionStorage.getItem(KEY) || ''; } catch { return ''; } };
+    const setPw = (v) => { try { v ? sessionStorage.setItem(KEY, v) : sessionStorage.removeItem(KEY); } catch {} };
+
+    async function api(method, body) {
+      const r = await fetch('/api/admin', {
+        method,
+        headers: { 'x-admin-password': getPw(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 401) throw Object.assign(new Error(data.error || '비밀번호가 맞지 않아요.'), { unauthorized: true });
+      if (!r.ok) throw new Error(data.error || '불러오지 못했어요.');
+      return data;
+    }
+
+    function showLogin(message) {
+      setPw('');
+      $('inbox').hidden = true;
+      $('login').hidden = false;
+      $('login-error').textContent = message || '';
+      $('login-error').hidden = !message;
+      $('pw').value = '';
+      $('pw').focus();
+    }
+
+    const fmt = (iso) => new Date(iso).toLocaleString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' });
+
+    function render(rows) {
+      $('new-count').textContent = rows.filter((r) => r.status === '새 문의').length;
+      const list = $('list');
+      list.innerHTML = '';
+      if (!rows.length) {
+        list.innerHTML = '<li class="empty">아직 들어온 문의가 없어요. 사이트 아래쪽 문의 폼으로 문의가 들어오면 여기에 보여요.</li>';
+        return;
+      }
+      rows.forEach((row) => {
+        const li = document.createElement('li');
+        li.className = 'card';
+        li.dataset.status = row.status;
+        li.innerHTML = `
+          <div class="card__head"><span>${fmt(row.created_at)}</span><span>${row.status}</span></div>
+          <p class="card__name"></p>
+          <button class="contact" type="button" title="눌러서 복사"></button>
+          <p class="card__date"></p>
+          <div class="statuses"></div>`;
+        li.querySelector('.card__name').textContent = row.name;
+        const contact = li.querySelector('.contact');
+        contact.textContent = row.contact;
+        contact.addEventListener('click', () => copy(contact, row.contact));
+        li.querySelector('.card__date').textContent = row.message ? `원하는 날짜: ${row.message}` : '원하는 날짜: 적지 않음';
+        const box = li.querySelector('.statuses');
+        STATUSES.forEach((s) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = s;
+          b.setAttribute('aria-pressed', String(s === row.status));
+          b.addEventListener('click', () => changeStatus(row.id, s));
+          box.appendChild(b);
+        });
+        list.appendChild(li);
+      });
+    }
+
+    async function copy(el, text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        const old = el.textContent;
+        el.textContent = '복사했어요';
+        setTimeout(() => (el.textContent = old), 1200);
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+
+    async function load() {
+      $('inbox-error').hidden = true;
+      try {
+        const { rows } = await api('GET');
+        $('login').hidden = true;
+        $('inbox').hidden = false;
+        render(rows);
+      } catch (e) {
+        if (e.unauthorized) return showLogin('비밀번호가 맞지 않아요.');
+        if ($('inbox').hidden) return showLogin(e.message);
+        $('inbox-error').textContent = e.message;
+        $('inbox-error').hidden = false;
+      }
+    }
+
+    async function changeStatus(id, status) {
+      try {
+        await api('PATCH', { id, status });
+        await load();
+      } catch (e) {
+        if (e.unauthorized) return showLogin('비밀번호가 맞지 않아요.');
+        $('inbox-error').textContent = e.message;
+        $('inbox-error').hidden = false;
+      }
+    }
+
+    $('login').addEventListener('submit', (e) => {
+      e.preventDefault();
+      setPw($('pw').value);
+      load();
+    });
+    $('refresh').addEventListener('click', load);
+
+    if (getPw()) load(); else $('pw').focus();
+  </script>
+</body>
+</html>
