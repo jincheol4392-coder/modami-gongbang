@@ -44,8 +44,12 @@ a:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 20px var(--gutter);
 }
+
+.brand,
+.kakao--small { white-space: nowrap; }
 
 .brand {
   font-family: var(--serif);
@@ -84,6 +88,7 @@ a:focus-visible {
   --cut: 10px;
   padding: 9px 18px;
   font-size: 0.9375rem;
+  line-height: 1.4;
 }
 
 .kakao--light { background: var(--oak); }
